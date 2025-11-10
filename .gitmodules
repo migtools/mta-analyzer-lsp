@@ -1,0 +1,6 @@
+[submodule "hack/build/csharp-language-server"]
+	path = hack/build/csharp-language-server
+	url = https://github.com/razzmatazz/csharp-language-server
+[submodule "hack/build/tools"]
+	path = hack/build/tools
+	url = https://github.com/golang/tools

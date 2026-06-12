@@ -1,0 +1,10 @@
+{
+  "name": "mta-nodejs-external-provider-deps",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Dependencies for MTA Node.js External Provider hermetic build",
+  "dependencies": {
+    "typescript": "5.7.3",
+    "typescript-language-server": "4.3.3"
+  }
+}

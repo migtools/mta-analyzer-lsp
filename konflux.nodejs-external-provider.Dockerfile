@@ -12,10 +12,17 @@ RUN echo -e "[nodejs]\nname=nodejs\nstream=${NODEJS_VERSION}\nprofiles=\nstate=e
 RUN dnf install -y nodejs npm openssl && \
     dnf clean all && \
     rm -rf /var/cache/dnf
-RUN npm install -g typescript-language-server typescript
 
 WORKDIR /addon
 RUN chgrp -R 0 /addon && chmod -R g=u /addon
+
+# Add steps for cachi2
+ENV REMOTE_SOURCES=${REMOTE_SOURCES:-"./hack/cachi2-nodejs"}
+ENV REMOTE_SOURCES_DIR=${REMOTE_SOURCES_DIR:-"/remote-sources"}
+COPY ${REMOTE_SOURCES} ${REMOTE_SOURCES_DIR}
+COPY hack/cachi2-nodejs/install.sh .
+RUN chmod +x install.sh && ./install.sh
+
 USER 1001
 
 COPY --from=builder /workspace/external-providers/nodejs-external-provider/nodejs-external-provider /usr/local/bin/nodejs-external-provider

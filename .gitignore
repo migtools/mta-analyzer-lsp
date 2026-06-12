@@ -35,4 +35,7 @@ coverage.out
 
 # Act secrets file
 .secrets
+
+# npm dependencies for hermetic build
+hack/cachi2-nodejs/node_modules/
 ...

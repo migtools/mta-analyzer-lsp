@@ -4,6 +4,8 @@ COPY --chown=1001:0 . /workspace
 WORKDIR /workspace/external-providers/java-external-provider
 ENV GOEXPERIMENT strictfipsruntime
 RUN CGO_ENABLED=1 go build -tags strictfipsruntime -a -o java-external-provider main.go
+RUN CGO_ENABLED=1 go build GOOS=darwin -tags strictfipsruntime -a -o darwin-java-external-provider main.go
+RUN CGO_ENABLED=1 go build GOOS=windows -tags strictfipsruntime -a -o windows-java-external-provider main.go
 
 FROM brew.registry.redhat.io/rh-osbs/mta-mta-jdtls-server-base-rhel9:8.0.0
 

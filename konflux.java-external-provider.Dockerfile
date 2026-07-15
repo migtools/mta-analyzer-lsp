@@ -14,6 +14,8 @@ RUN chgrp -R 0 /addon && chmod -R g=u /addon
 USER 1001
 
 COPY --from=builder /workspace/external-providers/java-external-provider/java-external-provider /usr/local/bin/java-external-provider
+COPY --from=builder /workspace/external-providers/java-external-provider/darwin-java-external-provider /usr/local/bin/darwin-java-external-provider
+COPY --from=builder /workspace/external-providers/java-external-provider/windows-java-external-provider /usr/local/bin/windows-java-external-provider
 COPY --from=builder /workspace/LICENSE /licenses/
 
 ENV HOME /addon

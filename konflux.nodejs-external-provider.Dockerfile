@@ -17,6 +17,12 @@ COPY --from=builder /workspace/hack/build/typescript-language-server.tgz typescr
 RUN npm install -g typescript-language-server.tgz typescript.tgz
 RUN typescript-language-server --version
 RUN rm -r typescript.tgz typescript-language-server.tgz
+# npm is only needed for the global install above. Its bundled node_modules ship
+# vulnerable transitive libraries (brace-expansion: CVE-2026-69152, CVE-2026-102276,
+# CVE-2026-102278) that are otherwise flagged in the runtime image. The provider
+# only needs the node runtime plus the self-contained typescript-language-server
+# bundle, so remove npm and its bundled modules from the final image.
+RUN dnf remove -y npm && dnf clean all && rm -rf /usr/lib/node_modules/npm /var/cache/dnf
 
 WORKDIR /addon
 RUN chgrp -R 0 /addon && chmod -R g=u /addon

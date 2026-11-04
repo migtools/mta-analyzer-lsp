@@ -39,6 +39,11 @@ RUN microdnf install nodejs npm -y && \
     microdnf clean all && \
     rm -rf /var/cache/dnf
 RUN npm install -g typescript-language-server typescript@6
+# npm is only needed for the install above; its bundled node_modules ship vulnerable
+# transitive libraries (brace-expansion: CVE-2026-69152, CVE-2026-102276, CVE-2026-102278).
+# The provider only needs the node runtime + the installed typescript-language-server,
+# so drop npm and its bundled modules from the final image.
+RUN microdnf remove -y npm && microdnf clean all && rm -rf /usr/lib/node_modules/npm /var/cache/dnf
 
 COPY --from=go-builder /opt/app-root/src/nodejs-provider/nodejs-external-provider /usr/local/bin/nodejs-external-provider
 WORKDIR /addon

@@ -1,5 +1,6 @@
 # Node.js gRPC provider binary image with typescript-language-server runtime.
-FROM registry.access.redhat.com/ubi9/go-toolset:1.25 as go-builder
+FROM registry.access.redhat.com/ubi9/go-toolset:1.26 as go-builder
+ENV GOTOOLCHAIN=auto
 
 USER 0
 
@@ -12,7 +13,7 @@ COPY external-providers/nodejs-external-provider/go.sum nodejs-provider/go.sum
 COPY external-providers/nodejs-external-provider/main.go nodejs-provider/main.go
 COPY external-providers/nodejs-external-provider/pkg/ nodejs-provider/pkg/
 
-RUN mkdir -p /opt/app-root/src/go && \
+RUN mkdir -p /opt/app-root/src/go/pkg/sumdb && \
     chgrp -R 0 /opt/app-root/src/go && \
     chmod -R g=u /opt/app-root/src/go && \
     chgrp -R 0 nodejs-provider && \
@@ -38,6 +39,11 @@ RUN microdnf install nodejs npm -y && \
     microdnf clean all && \
     rm -rf /var/cache/dnf
 RUN npm install -g typescript-language-server typescript@6
+# npm is only needed for the install above; its bundled node_modules ship vulnerable
+# transitive libraries (brace-expansion: CVE-2026-69152, CVE-2026-102276, CVE-2026-102278).
+# typescript-language-server/typescript are self-contained bundles with no such deps, so
+# the provider only needs the node runtime. Drop npm and its bundled modules.
+RUN microdnf remove -y npm && microdnf clean all && rm -rf /usr/lib/node_modules/npm /var/cache/dnf
 
 COPY --from=go-builder /opt/app-root/src/nodejs-provider/nodejs-external-provider /usr/local/bin/nodejs-external-provider
 WORKDIR /addon

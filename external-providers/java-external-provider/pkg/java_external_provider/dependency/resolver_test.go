@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -390,5 +391,53 @@ func TestGradleResolver(t *testing.T) {
 				return nil
 			})
 		})
+	}
+}
+
+func TestAppendMavenInsecureArgs(t *testing.T) {
+	base := []string{"-B", "dependency:tree"}
+	got := AppendMavenInsecureArgs(base)
+
+	// maven.wagon.http.ssl.insecure is Wagon-only, so the Wagon transport must also be
+	// forced or Maven 3.9+'s default native transport ignores it (konveyor/analyzer-lsp#1190).
+	want := []string{
+		"-Dmaven.resolver.transport=wagon",
+		"-Dmaven.wagon.http.ssl.insecure=true",
+	}
+	for _, arg := range want {
+		if !slices.Contains(got, arg) {
+			t.Errorf("expected args to contain %q, got %v", arg, got)
+		}
+	}
+
+	// The original args must be preserved.
+	for _, arg := range base {
+		if !slices.Contains(got, arg) {
+			t.Errorf("expected original arg %q to be preserved, got %v", arg, got)
+		}
+	}
+}
+
+func TestAppendMavenTrustStoreArgs(t *testing.T) {
+	base := []string{"-B", "dependency:tree"}
+	got := AppendMavenTrustStoreArgs(base, "/shared/creds/maven/truststore.jks")
+
+	// Both the truststore location and its password must be set so Maven (and the JDTLS
+	// JVM) trust the custom CA while keeping TLS verification on.
+	want := []string{
+		"-Djavax.net.ssl.trustStore=/shared/creds/maven/truststore.jks",
+		"-Djavax.net.ssl.trustStorePassword=" + TrustStorePassword,
+	}
+	for _, arg := range want {
+		if !slices.Contains(got, arg) {
+			t.Errorf("expected args to contain %q, got %v", arg, got)
+		}
+	}
+
+	// The original args must be preserved.
+	for _, arg := range base {
+		if !slices.Contains(got, arg) {
+			t.Errorf("expected original arg %q to be preserved, got %v", arg, got)
+		}
 	}
 }

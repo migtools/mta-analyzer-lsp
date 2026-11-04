@@ -15,6 +15,7 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/konveyor/analyzer-lsp/engine"
 	"github.com/konveyor/analyzer-lsp/external-providers/java-external-provider/pkg/java_external_provider/bldtool"
+	"github.com/konveyor/analyzer-lsp/external-providers/java-external-provider/pkg/java_external_provider/dependency"
 	"github.com/konveyor/analyzer-lsp/external-providers/java-external-provider/pkg/java_external_provider/dependency/labels"
 	jsonrpc2 "github.com/konveyor/analyzer-lsp/jsonrpc2_v2"
 	base "github.com/konveyor/analyzer-lsp/lsp/base_service_client"
@@ -33,6 +34,7 @@ const (
 	MVN_SETTINGS_FILE_INIT_OPTION = "mavenSettingsFile"
 	GLOBAL_SETTINGS_INIT_OPTION   = "mavenCacheDir"
 	MVN_INSECURE_SETTING          = "mavenInsecure"
+	MVN_CA_CERT_SETTING           = "mavenCaFile"
 	CLEAN_EXPLODED_BIN_OPTION     = "cleanExplodedBin"
 	JVM_MAX_MEM_INIT_OPTION       = "jvmMaxMem"
 	FERN_FLOWER_INIT_OPTION       = "fernFlowerPath"
@@ -349,6 +351,39 @@ func (p *javaProvider) Init(ctx context.Context, log logr.Logger, config provide
 		mavenInsecure = false
 	}
 
+	// When a custom CA bundle is supplied (via the hub Identity.CaCert field), build a
+	// truststore that trusts it in addition to the JDK defaults. Maven and JDTLS are then
+	// pointed at it so dependency resolution and project import against an internal Maven
+	// repository succeed without disabling TLS verification.
+	//
+	// The hub addon delivers the CA via mavenCaFile, a path to a file it always writes from
+	// Identity.CaCert (tackle2-operator#635). Because Identity.CaCert is not omitempty, that
+	// file is empty whenever the maven identity carries no CA, which is the common case. Treat
+	// a missing or empty file as "no custom CA" and skip, but still fail hard on a non-empty
+	// yet malformed bundle rather than continue: a broken CA silently yields empty analysis
+	// results (MTA-8101). For the same reason a stat error other than "not found" (e.g. a
+	// permissions problem) fails hard rather than being misread as an absent CA.
+	var mavenTrustStore string
+	if caCertPath, ok := config.ProviderSpecificConfig[MVN_CA_CERT_SETTING].(string); ok && caCertPath != "" {
+		info, statErr := os.Stat(caCertPath)
+		if statErr != nil && !errors.Is(statErr, os.ErrNotExist) {
+			return nil, additionalBuiltinConfig, fmt.Errorf("failed inspecting CA bundle %s: %w", caCertPath, statErr)
+		}
+		if errors.Is(statErr, os.ErrNotExist) || info.Size() == 0 {
+			log.V(5).Info("no custom Maven CA bundle provided; skipping truststore build", "caCert", caCertPath)
+		} else {
+			log.Info("building Maven/JDTLS truststore from custom CA bundle", "caCert", caCertPath)
+			trustStoreDir, err := os.MkdirTemp("", "konveyor-truststore-")
+			if err != nil {
+				return nil, additionalBuiltinConfig, fmt.Errorf("failed creating truststore directory: %w", err)
+			}
+			mavenTrustStore, err = bldtool.BuildTrustStore(caCertPath, trustStoreDir, log)
+			if err != nil {
+				return nil, additionalBuiltinConfig, fmt.Errorf("failed building truststore from CA bundle %s: %w", caCertPath, err)
+			}
+		}
+	}
+
 	lspServerPath, _ := config.ProviderSpecificConfig[provider.LspServerPathConfigKey].(string)
 	fernflower, ok := config.ProviderSpecificConfig[FERN_FLOWER_INIT_OPTION].(string)
 	if !ok {
@@ -369,7 +404,7 @@ func (p *javaProvider) Init(ctx context.Context, log logr.Logger, config provide
 	// each service client should have their own context
 	downloadCtx, cancelFunc := context.WithCancel(ctx)
 	// location can be a coordinate to a remote mvn artifact
-	if downloader, ok := bldtool.GetDownloader(config.Location, mavenSettingsFile, mavenInsecure, log); ok {
+	if downloader, ok := bldtool.GetDownloader(config.Location, mavenSettingsFile, mavenInsecure, mavenTrustStore, log); ok {
 		downloadPath, err := downloader.Download(downloadCtx)
 		if err != nil {
 			cancelFunc()
@@ -393,6 +428,7 @@ func (p *javaProvider) Init(ctx context.Context, log logr.Logger, config provide
 		MvnSettingsFile:       mavenSettingsFile,
 		MvnGlobalSettingsFile: globalSettingsFile,
 		MvnInsecure:           mavenInsecure,
+		MvnTrustStore:         mavenTrustStore,
 		MavenIndexPath:        mavenSHASearchIndex,
 		Labeler:               openSourceLabeler,
 		GradleTaskFile:        gradleTaskFile,
@@ -500,10 +536,31 @@ func (p *javaProvider) Init(ctx context.Context, log logr.Logger, config provide
 		"--add-opens", "java.base/java.util=ALL-UNNAMED",
 		"--add-opens", "java.base/java.lang=ALL-UNNAMED",
 		"-Djava.net.useSystemProxies=true",
+	}
+
+	// When analyzing against an untrusted-TLS Maven repository (self-signed or private
+	// CA), JDTLS's embedded m2e resolver must also use the legacy Wagon transport for the
+	// insecure flag to take effect. Since Maven 3.9.0 the default resolver transport is the
+	// native HTTP transport, which ignores maven.wagon.http.ssl.insecure, so without this
+	// the m2e project import fails PKIX, the workspace never becomes ready, and analysis
+	// hangs in Prepare(). This mirrors the flags forced for the provider's own mvn calls.
+	// See konveyor/analyzer-lsp#1190.
+	if mavenInsecure {
+		jdtlsArgs = append(jdtlsArgs, dependency.MavenInsecureArgs...)
+	}
+
+	// Make JDTLS's embedded m2e resolver trust the custom CA during project import, the
+	// same way it is applied to the provider's own mvn calls. Without this the m2e import
+	// fails PKIX, the workspace never becomes ready, and analysis returns empty results.
+	if mavenTrustStore != "" {
+		jdtlsArgs = append(jdtlsArgs, dependency.MavenTrustStoreArgs(mavenTrustStore)...)
+	}
+
+	jdtlsArgs = append(jdtlsArgs,
 		"-jar", jarPath,
 		"-configuration", "./",
 		"-data", workspace,
-	}
+	)
 
 	if val, ok := config.ProviderSpecificConfig[JVM_MAX_MEM_INIT_OPTION].(string); ok && val != "" {
 		jdtlsArgs = append(jdtlsArgs, fmt.Sprintf("-Xmx%s", val))

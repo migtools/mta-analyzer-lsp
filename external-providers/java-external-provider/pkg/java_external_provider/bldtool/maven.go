@@ -55,6 +55,7 @@ func getMavenBuildTool(opts BuildToolOptions, log logr.Logger) BuildTool {
 	}
 	mavenBaseTool := mavenBaseTool{
 		mvnInsecure:           opts.MvnInsecure,
+		mvnTrustStore:         opts.MvnTrustStore,
 		mvnSettingsFile:       opts.MvnSettingsFile,
 		mvnGlobalSettingsFile: opts.MvnGlobalSettingsFile,
 		mavenIndexPath:        opts.MavenIndexPath,
@@ -120,6 +121,7 @@ func (m *mavenBuildTool) GetResolver(decompileTool string) (dependency.Resolver,
 		GlobalBuildFile: m.mvnGlobalSettingsFile,
 		LocalRepo:       m.mvnLocalRepo,
 		Insecure:        m.mvnInsecure,
+		TrustStore:      m.mvnTrustStore,
 		DecompileTool:   decompileTool,
 		Labeler:         m.labeler,
 	}
@@ -146,7 +148,11 @@ func (m *mavenBuildTool) getDependenciesForMaven(ctx context.Context) (map[uri.U
 	}
 
 	if m.mvnInsecure {
-		args = append(args, "-Dmaven.wagon.http.ssl.insecure=true")
+		args = dependency.AppendMavenInsecureArgs(args)
+	}
+
+	if m.mvnTrustStore != "" {
+		args = dependency.AppendMavenTrustStoreArgs(args, m.mvnTrustStore)
 	}
 
 	// get the graph output

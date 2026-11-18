@@ -65,6 +65,7 @@ jobs:
 
     uses: konveyor/release-tools/.github/workflows/build-push-images.yaml@main
     with:
+      publish: 'false'
       registry: "quay.io/konveyor"
       image_name: ${{ matrix.images.name }}
       containerfile: ${{ matrix.images.containerfile }}

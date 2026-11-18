@@ -20,6 +20,7 @@ jobs:
     needs: [compute-deps-refs]
     uses: konveyor/release-tools/.github/workflows/build-push-images.yaml@main
     with:
+      publish: 'false'
       registry: "quay.io/konveyor"
       image_name: java-external-provider
       containerfile: "external-providers/java-external-provider/Dockerfile"
